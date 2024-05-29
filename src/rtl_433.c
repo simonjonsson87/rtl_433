@@ -1595,6 +1595,7 @@ int main(int argc, char **argv) {
     sdr_redirect_logging();
 
     r_init_cfg(cfg);
+    
 
     setbuf(stdout, NULL);
     setbuf(stderr, NULL);
@@ -1670,6 +1671,8 @@ int main(int argc, char **argv) {
     if (!cfg->no_default_devices) {
         register_all_protocols(cfg, 0); // register all defaults
     }
+    printf(cfg->devices[257].name);
+    printf("%d", cfg->num_r_devices);
 
     // check if we need FM demod
     for (void **iter = demod->r_devs.elems; iter && *iter; ++iter) {

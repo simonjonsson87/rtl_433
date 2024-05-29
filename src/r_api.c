@@ -328,6 +328,7 @@ void register_all_protocols(r_cfg_t *cfg, unsigned disabled)
         // register all device protocols that are not disabled
         if (cfg->devices[i].disabled <= disabled) {
             register_protocol(cfg, &cfg->devices[i], NULL);
+            printf(cfg->devices[i].name);
         }
     }
 }

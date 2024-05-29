@@ -73,6 +73,7 @@ Data layout:
 
 static int unknown1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
+    printf("######### In unknown1_decode ###############");
     data_t *data;
     int r;      // a row index
     uint8_t *b; // bits of a row
@@ -246,7 +247,7 @@ static int unknown1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 
     /* clang-format off */
     data = data_make(
-            "model", "", DATA_STRING, "New-Template",
+            "model", "", DATA_STRING, "Unknown1",
             "id",    "", DATA_INT,    6969,
             "data",  "", DATA_INT,    69,
             "raw",   "", DATA_STRING, "CHECKSUM", // CRC, CHECKSUM, or PARITY
@@ -296,7 +297,7 @@ static char const *const output_fields[] = {
  *
  */
 r_device const unknown1 = {
-        .name        = "Unknown1 decoder",
+        .name        = "Unknown1",
         .modulation  = FSK_PULSE_PCM,
         .short_width = 500,  // short gap is 132 us
         .long_width  = 500,  // long gap is 224 us
