@@ -1,7 +1,7 @@
 /** @file
-    Template decoder for DEVICE, tested with BRAND, BRAND.
+    THis is a decoder for unknown signals detected in Southampton, UK. 
 
-    Copyright (C) 2016 Benjamin Larsson
+    Copyright (C) 2024 Simon Jonsson
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -30,58 +30,114 @@
 */
 
 /**
-(this is a markdown formatted section to describe the decoder)
-(describe the modulation, timing, and transmission, e.g.)
-The device uses PPM encoding,
+The device uses FSK_PULSE_PCM encoding,
 - 0 is encoded as 40 us pulse and 132 us gap,
 - 1 is encoded as 40 us pulse and 224 us gap.
-The device sends a transmission every 63 seconds.
-A transmission starts with a preamble of 0xAA,
-there a 5 repeated packets, each with a 1200 us gap.
+The device sends a transmission every 60 seconds on average, but the transmissions are not perfectly regular.
+A transmission starts with a preamble of 0xAAAAAAAAAAAAAAAA.
 
-(describe the data and payload, e.g.)
+
+Most of the packet structure is not known.
 Data layout:
-    (preferably use one character per bit)
-    FFFFFFFF PPPPPPPP PPPPPPPP IIIIIIII IIIIIIII IIIIIIII TTTTTTTT TTTTTTTT CCCCCCCC
-    (otherwise use one character per nibble if this fits well)
-    FF PP PP II II II TT TT CC
+    SS SS II II TU UU UU DD DD UU UU 
 
-- F: 8 bit flags, (0x40 is battery_low)
-- P: 16-bit little-endian Pressure
-- I: 24-bit little-endian id
-- T: 16-bit little-endian Unknown, likely Temperature
-- C: 8 bit Checksum, CRC-8 truncated poly 0x07 init 0x00
+- S: These two bytes are almost always the same, so they may be static.
+- I: These two bytes appear to be ids for different devices
+- U: Unknown
+- T: This nibble could be package type, because it corresponds with types of messages.
+- D: This is likely two bytes of temperature. The value need to be multiplied by 0.1 to get a realistic celsius reading
 */
 
 #include "decoder.h"
+#include <stdio.h>
+#include <stdlib.h>
 
-/*
- * Hypothetical template device
- *
- * Message is 68 bits long
- * Messages start with 0xAA
- * The message is repeated as 5 packets,
- * require at least 3 repeated packets.
- *
- */
-#define MYDEVICE_BITLEN     68
-#define MYDEVICE_STARTBYTE  0xAA
-#define MYDEVICE_MINREPEATS 3
-#define MYDEVICE_MSG_TYPE   0x10
-#define MYDEVICE_CRC_POLY   0x07
-#define MYDEVICE_CRC_INIT   0x00
 
+char* bitsToString(unsigned char* b, int n);
+char* bitsToString(unsigned char* b, int n) {
+    // Calculate the number of characters needed
+    //int numChars = (n + 7) / 8; // Number of characters needed
+    int numChars = n; // Number of characters needed
+
+    // Allocate memory for the string
+    char* str = malloc(numChars + 1); // +1 for the null terminator
+    if (str == NULL) {
+        return NULL; // Memory allocation failed
+    }
+
+    // Parse each bit and convert to character
+    
+
+    for (int u = 0; u < (numChars + 7) / 8; ++u) {
+        //printf("%d\n", b[u]);
+        int ceiling = 0;
+        if (numChars - u*8 <= 8) {
+            ceiling = numChars - u*8;
+        } else {
+            ceiling = 8;
+        }
+        //printf("b[u]: %d; ceiling: %d; numChars: %d\n", b[u], ceiling, numChars);
+        for (int i = 0; i < ceiling; ++i) {
+            // Extract the ith bit from the rightmost position
+            //str[i] = (b & (1 << (7 - i)))? '1' : '0';
+            int y = u*8 + i;
+            str[y] = ((b[u]) & (1 << (7 - i)))? '1' : '0';
+            //printf("y=%d and result=%u\n", y, b[u]);
+        }
+    }
+
+    // Add null terminator
+    str[numChars] = '\0';
+
+    return str;
+}
+
+char hex_table[16] = "0123456789ABCDEF";
+void uint8_to_hex(uint8_t *data, size_t data_size, char *output, size_t output_size);
+void uint8_to_hex(uint8_t *data, size_t data_size, char *output, size_t output_size) {
+    //printf("data: %u; output: %u; data_size: %ld; output_size: %ld\n", *data, *output, data_size, output_size);
+
+    for (size_t i = 0; i < data_size; ++i) {
+        // Convert the high nibble to its ASCII representation
+        output[i * 2] = hex_table[data[i] >> 4];
+        // Convert the low nibble to its ASCII representation
+        uint8_t lowNibble = data[i];
+        lowNibble <<= 4;
+        lowNibble >>= 4;
+        output[i * 2 + 1] = hex_table[lowNibble];
+        //printf("high: %d; low: %d\n", data[i] >> 4, lowNibble);
+        //printf("%d%d", hex_table[data[i] >> 4], hex_table[lowNibble]);
+    }
+
+    // Null-terminate the output string
+    output[data_size * 2] = '\0';
+
+    //printf("===============\n");
+    
+}
+
+
+#include <math.h>
+#include <string.h>
 static int unknown1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 {
-    printf("######### In unknown1_decode ###############");
     data_t *data;
     int r;      // a row index
     uint8_t *b; // bits of a row
-    int parity;
-    uint8_t r_crc, c_crc;
-    uint16_t sensor_id;
-    uint8_t msg_type;
-    int16_t value;
+    //int currentByteIndex = 0;
+
+    // Check the total size of the 
+    int totalLen = 0;
+    for (r = 0; r < bitbuffer->num_rows; ++r) {
+        totalLen += bitbuffer->bits_per_row[r];
+    }
+
+    char* binaryData = (char*)malloc(totalLen);
+    //int binaryDataPointer = 0;    
+
+    uint8_t* rawData = (uint8_t*)malloc(totalLen);
+    int rawDataPointer = 0;    
+
 
     /*
      * Early debugging aid to see demodulated bits in buffer and
@@ -91,7 +147,7 @@ static int unknown1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
      * 1. Enable with -vvv (debug decoders)
      * 2. Delete this block when your decoder is working
      */
-    //    decoder_log_bitbuffer(decoder, 2, __func__, bitbuffer, "");
+    decoder_log_bitbuffer(decoder, 2, __func__, bitbuffer, "");
 
     /*
      * If you expect the bits flipped with respect to the demod
@@ -109,150 +165,78 @@ static int unknown1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
      * start/preamble periods of different lengths.
      */
 
+    
     /*
      * Either, if you expect just a single packet
      * loop over all rows and collect or output data:
      */
+    //printf("unknown1_decode-num_rows: %d\n", bitbuffer->num_rows);
 
+    // Rows loop
     for (r = 0; r < bitbuffer->num_rows; ++r) {
         b = bitbuffer->bb[r];
+        int rowBitCount = bitbuffer->bits_per_row[r];
 
-        /*
-         * Validate message and reject invalid messages as
-         * early as possible before attempting to parse data.
-         *
-         * Check "message envelope"
-         * - valid message length (use a minimum length to account
-         *   for stray bits appended or prepended by the demod)
-         * - valid preamble/device type/fixed bits if any
-         * - Data integrity checks (CRC/Checksum/Parity)
-         */
+        //printf("#### Row %d: %s #####\n", r, bitsToString(b, rowBitCount));
+        // Bits loop
+        for (int signalBitCounter = 0; signalBitCounter < rowBitCount; ++signalBitCounter) {
+            int signalByteIndex = floor(signalBitCounter / 8);
+            int signalBitInByteIndex = signalBitCounter % 8;
+            uint8_t signalBit = b[signalByteIndex];
+            
 
-        if (bitbuffer->bits_per_row[r] < MYDEVICE_BITLEN) {
-            continue; // not enough bits
+            int rawByteIndex = floor(rawDataPointer / 8);
+            int rawBitInByteIndex = rawDataPointer % 8;
+            uint8_t rawByte = rawData[rawByteIndex];
+            
+            signalBit <<= signalBitInByteIndex;
+            signalBit >>= 7;
+            signalBit <<= (7 - rawBitInByteIndex);
+
+            rawByte |= signalBit;
+            rawData[rawByteIndex] = rawByte;
+            rawDataPointer++;
+
+            //printf("signalBitCounter: %d; signalBitInByteIndex: %d;signalBit: %s\n", signalBitCounter, signalBitInByteIndex, bitsToString(&signalBit, 8));
+            //printf("rawDataPointer: %d; rawByteIndex: %d; rawBitInByteIndex: %d;rawByte: %s\n", rawDataPointer, rawByteIndex, rawBitInByteIndex, bitsToString(&rawByte, 8));
+            //printf("%s\n", bitsToString(rawData, rawDataPointer));
         }
-
-        if (b[0] != 0x42) {
-            continue; // magic header not found
-        }
-
-        /*
-         * ... see below and replace `return 0;` with `continue;`
-         */
+    }
+    
+    // Check preamble
+    for (int i = 0; i < 8; i++) {
+        if (rawData[i] != 0xAA) return 0;
     }
 
-    /*
-     * Or, if you expect repeated packets
-     * find a suitable row:
-     */
+    char* binary = (char*)malloc(totalLen);
+    binary = bitsToString(rawData, rawDataPointer);
 
-    r = bitbuffer_find_repeated_row(bitbuffer, MYDEVICE_MINREPEATS, MYDEVICE_BITLEN);
-    if (r < 0 || bitbuffer->bits_per_row[r] > MYDEVICE_BITLEN + 16) {
-        return 0;
-    }
+    //printf("#####################################################################\n");
+    char* hexChars = (char*)malloc(totalLen);
+    uint8_to_hex(rawData, ceil(totalLen/8.0), hexChars, ceil(totalLen/4.0));
 
-    b = bitbuffer->bb[r];
+    
+    //printf("rowCount: %d; bitCount: %d; rawData: %s\n", bitbuffer->num_rows, totalLen, bitsToString(rawData, rawDataPointer));
 
-    /*
-     * Either reject rows that don't start with the correct start byte:
-     * Example message should start with 0xAA
-     */
-    if (b[0] != MYDEVICE_STARTBYTE) {
-        return 0;
-    }
+    //printf("%s\n", hexChars);
 
-    /*
-     * Or (preferred) search for the message preamble:
-     * See bitbuffer_search()
-     */
-
-    /*
-     * Several tools are available to reverse engineer a message integrity
-     * check:
-     *
-     * - reveng for CRC: http://reveng.sourceforge.net/
-     *   - Guide: https://hackaday.com/2019/06/27/reverse-engineering-cyclic-redundancy-codes/
-     * - revdgst: https://github.com/triq-org/revdgst/
-     * - trial and error, e.g. via online calculators:
-     *   - https://www.scadacore.com/tools/programming-calculators/online-checksum-calculator/
-     */
-
-    /*
-     * Check message integrity (Parity example)
-     *
-     */
-    /*
-    // parity check: odd parity on bits [0 .. 67]
-    // i.e. 8 bytes and a nibble.
-    parity = b[0] ^ b[1] ^ b[2] ^ b[3] ^ b[4] ^ b[5] ^ b[6] ^ b[7]; // parity as byte
-    parity = (parity >> 4) ^ (parity & 0xF);                        // fold to nibble
-    parity ^= b[8] >> 4;                                            // add remaining nibble
-    parity = (parity >> 2) ^ (parity & 0x3);                        // fold to 2 bits
-    parity = (parity >> 1) ^ (parity & 0x1);                        // fold to 1 bit
-
-    if (!parity) {
-        // Enable with -vv (verbose decoders)
-        decoder_log(decoder, 1, __func__, "parity check failed");
-        return 0;
-    }
-    */
-
-    /*
-     * Check message integrity (Checksum example)
-     */
-    /*
-    if (((b[0] + b[1] + b[2] + b[3] - b[4]) & 0xFF) != 0) {
-        // Enable with -vv (verbose decoders)
-        decoder_log(decoder, 1, __func__, "checksum error");
-        return 0;
-    }
-    */
-
-    /*
-     * Check message integrity (CRC example)
-     *
-     * Example device uses CRC-8
-     */
-    /*
-    r_crc = b[7];
-    c_crc = crc8(b, MYDEVICE_BITLEN / 8, MYDEVICE_CRC_POLY, MYDEVICE_CRC_INIT);
-    if (r_crc != c_crc) {
-        // Enable with -vv (verbose decoders)
-        decoder_logf(decoder, 1, __func__, "bad CRC: calculated %02x, received %02x",
-                c_crc, r_crc);
-
-        // reject row
-        return 0;
-    }
-    */
-
-    /*
-     * Now that message "envelope" has been validated,
-     * start parsing data.
-     */
-    /*
-    msg_type  = b[1];
-    sensor_id = b[2] << 8 | b[3];
-    value     = b[4] << 8 | b[5];
-
-    if (msg_type != MYDEVICE_MSG_TYPE) {
-        
-         // received an unexpected message type
-         // could be a bad message or a new message not
-         // previously seen.  Optionally log debug output.
-         
-        return 0;
-    }
-    */
-
-    /* clang-format off */
     data = data_make(
-            "model", "", DATA_STRING, "Unknown1",
-            "id",    "", DATA_INT,    6969,
-            "data",  "", DATA_INT,    69,
-            "raw",   "", DATA_STRING, "CHECKSUM", // CRC, CHECKSUM, or PARITY
+            "model",            "",             DATA_STRING,    "Unknown1",
+            "short_width",      NULL,           DATA_DOUBLE,    decoder->short_width,
+            "long_width",       NULL,           DATA_DOUBLE,    decoder->long_width,
+            "gap_limit",        NULL,           DATA_DOUBLE,    decoder->gap_limit,
+            "reset_limit",      NULL,           DATA_DOUBLE,    decoder->reset_limit,
+            "lengthBits",       "lengthBits",   DATA_INT,       totalLen,
+            "hex_data",         NULL,           DATA_STRING,    hexChars,
+            "binary_data",      NULL,           DATA_STRING,    binary,
+            "rowCount",         "rowCount",     DATA_INT,       bitbuffer->num_rows,
             NULL);
+
+    free(binaryData);
+    free(rawData);
+    free(binary);
     /* clang-format on */
+    //printf("Before decoder_output_data in unknown1"); // Simon
     decoder_output_data(decoder, data);
 
     // Return 1 if message successfully decoded
@@ -268,9 +252,14 @@ static int unknown1_decode(r_device *decoder, bitbuffer_t *bitbuffer)
  */
 static char const *const output_fields[] = {
         "model",
-        "id",
-        "data",
-        "raw", // remove if not applicable
+        "short_width",
+        "long_width", 
+        "gap_limit",  
+        "reset_limit",
+        "lengthBits", 
+        "hex_data",
+        "binary_data",
+        "rowCount",
         NULL,
 };
 
@@ -299,11 +288,40 @@ static char const *const output_fields[] = {
 r_device const unknown1 = {
         .name        = "Unknown1",
         .modulation  = FSK_PULSE_PCM,
-        .short_width = 500,  // short gap is 132 us
-        .long_width  = 500,  // long gap is 224 us
-        .gap_limit   = 500,  // some distance above long
-        .reset_limit = 1000, // a bit longer than packet gap
+        .short_width = 500,  // Nominal width of pulse [us]
+        .long_width  = 500,  // Nominal width of bit period [us]
+        .gap_limit   = 7000,  // some distance above long
+        .reset_limit = 10000, // a bit longer than packet gap. 9000 better than 10000
         .decode_fn   = &unknown1_decode,
-        .disabled    = 3, // disabled and hidden, use 0 if there is a MIC, 1 otherwise
+        .disabled    = 0, // 3 = disabled and hidden, use 0 if there is a MIC, 1 otherwise
         .fields      = output_fields,
 };
+
+// gap-limit    reset-limit
+// 7000         10000
+// 7000         11000
+// 7000         12000
+// 8000         10000
+// 8000         11000
+// 8000         12000
+// 9000         10000
+// 9000         11000
+// 9000         12000
+// 7000         9000
+// 6000         10000
+
+// 6000 - more than one row per packet
+// 7000 159 147
+// 8000 159 149
+// 9000 159 151
+// 10000 - Second message not identified because the first bits are not 10101010
+
+// 9000 400 
+// 9000 500  114 111
+// 9000 600  114 111
+// 9000 1000 124 122
+// 9000 2000 136 131
+// 9000 4000 151 141 (second row)
+// 9000 8000 159 149
+// 9000 10000 159 152
+// 9000 11000 159 152
